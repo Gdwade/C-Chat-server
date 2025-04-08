@@ -14,10 +14,9 @@
 #define BACKLOG 10
 #define BUF_SIZE 4096
 
-// Look at everywhere we use the list, and figure out how bad it would be if something else happen
-
-struct client {
-    char * username;
+struct client
+{
+    char *username;
     int fd;
     uint16_t rem_port;
     char *rem_ip;
@@ -25,17 +24,18 @@ struct client {
     struct client *next;
     struct client *prev;
 };
-struct client_list {
-    struct client * head;
-    struct client * tail;
+struct client_list
+{
+    struct client *head;
+    struct client *tail;
 };
 pthread_mutex_t list_mutex;
 
 void get_time(char *t_buff);
-void *handle_client(void* data);
-void disconect_client(struct client * c);
-void send_to_all_clients(struct client * c, char* s, int l);
-int rename_client(char * in_buff, char * t_buff, char * out_buff, struct client * c);
+void *handle_client(void *data);
+void disconect_client(struct client *c);
+void send_to_all_clients(struct client *c, char *s, int l);
+int rename_client(char *in_buff, char *t_buff, char *out_buff, struct client *c);
 
 int main(int argc, char *argv[])
 {
@@ -45,9 +45,10 @@ int main(int argc, char *argv[])
     int rc;
     struct sockaddr_in remote_sa;
     socklen_t addrlen;
-    
+
     struct client_list *cl;
-    if ((cl = malloc(sizeof(struct client_list))) == NULL) {
+    if ((cl = malloc(sizeof(struct client_list))) == NULL)
+    {
         return -1;
     }
     cl->head = NULL;
@@ -56,7 +57,8 @@ int main(int argc, char *argv[])
     listen_port = argv[1];
 
     /* create a socket */
-    if ((listen_fd = socket(PF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((listen_fd = socket(PF_INET, SOCK_STREAM, 0)) == -1)
+    {
         perror("socket");
         return -1;
     }
@@ -66,55 +68,66 @@ int main(int argc, char *argv[])
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
-    if ((rc = getaddrinfo(NULL, listen_port, &hints, &res)) != 0) {
+    if ((rc = getaddrinfo(NULL, listen_port, &hints, &res)) != 0)
+    {
         printf("getaddrinfo failed: %s\n", gai_strerror(rc));
         exit(1);
     }
-    if (bind(listen_fd, res->ai_addr, res->ai_addrlen) == -1) {
+    if (bind(listen_fd, res->ai_addr, res->ai_addrlen) == -1)
+    {
         perror("bind");
         return -1;
     }
 
     /* start listening */
-    if (listen(listen_fd, BACKLOG) == -1) {
+    if (listen(listen_fd, BACKLOG) == -1)
+    {
         perror("listen");
         return -1;
     }
 
     /* infinite loop of accepting new connections and handling them */
-    while(1) {
+    while (1)
+    {
         /* accept a new connection (will block until one appears) */
         addrlen = sizeof(remote_sa);
-        if ((conn_fd = accept(listen_fd, (struct sockaddr *) &remote_sa, &addrlen)) == -1) {
+        if ((conn_fd = accept(listen_fd, (struct sockaddr *)&remote_sa, &addrlen)) == -1)
+        {
             perror("accept");
             return -1;
         }
- 
+
         /* Set up new client struct and add it to the client list */
         struct client *current_record;
-        if ((current_record = malloc(sizeof(struct client))) == NULL) {
+        if ((current_record = malloc(sizeof(struct client))) == NULL)
+        {
             return -1;
         }
 
         pthread_mutex_lock(&list_mutex);
-        if (cl->head == NULL) {
+        if (cl->head == NULL)
+        {
             cl->head = current_record;
-        } else {
+        }
+        else
+        {
             cl->tail->next = current_record;
             current_record->prev = cl->tail;
         }
         cl->tail = current_record;
         current_record->client_list = cl;
         current_record->fd = conn_fd;
-        current_record->username  = "User unknown";
+        current_record->username = "User unknown";
         current_record->next = NULL;
-        char * temp_ip;
-        if ((temp_ip = inet_ntoa(remote_sa.sin_addr)) == 0) {
+        char *temp_ip;
+        if ((temp_ip = inet_ntoa(remote_sa.sin_addr)) == 0)
+        {
             perror("inet_ntoa");
             pthread_mutex_unlock(&list_mutex);
             return -1;
         }
-        if ((current_record->rem_ip = strdup(temp_ip)) == NULL) {
+        if ((current_record->rem_ip = strdup(temp_ip)) == NULL)
+        {
             perror("strdup");
             pthread_mutex_unlock(&list_mutex);
             return -1;
@@ -128,36 +141,53 @@ int main(int argc, char *argv[])
     }
 }
 
-void *handle_client(void* data) {
+/*
+ * Async function to handle client and interactions.
+ * Handles renames, and redirects all messages to all other clients.
+ * Parameters:
+ * data: pointer to the threads client struct.
+ */
+void *handle_client(void *data)
+{
     struct client *c = data;
     int bytes_received;
-    while(1) {
+    while (1)
+    {
         char in_buff[BUF_SIZE] = {'\0'};
-        while((bytes_received = recv(c->fd, in_buff, BUF_SIZE, 0)) > 0) {
+        while ((bytes_received = recv(c->fd, in_buff, BUF_SIZE, 0)) > 0)
+        {
             int send_bytes = 0;
             char out_buff[BUF_SIZE] = {'\0'};
             char t_buff[10];
             get_time(t_buff);
-            if (in_buff[0] == '/') {
+            if (in_buff[0] == '/')
+            {
                 // We may be in the /nick case, check for "nick " (trailing space intentional)
                 char command_buff[6] = {'\0'};
                 strncpy(command_buff, in_buff + 1, 5);
-                if (strcmp(command_buff, "nick ") == 0) {
+                if (strcmp(command_buff, "nick ") == 0)
+                {
                     send_bytes = rename_client(in_buff, t_buff, out_buff, c);
-                } else {
+                }
+                else
+                {
                     continue;
                 }
-            } else {
+            }
+            else
+            {
                 // Its a message for clients
                 int len = bytes_received + 12 + strlen(c->username);
-                if ((send_bytes = snprintf(out_buff, len, "%s: %s: %s", t_buff, c->username ,in_buff)) < 0) {
+                if ((send_bytes = snprintf(out_buff, len, "%s: %s: %s", t_buff, c->username, in_buff)) < 0)
+                {
                     perror("snprintf");
                     return NULL;
                 }
             }
             send_to_all_clients(c, out_buff, send_bytes);
         }
-        if (bytes_received == -1) {
+        if (bytes_received == -1)
+        {
             perror("recv");
             return NULL;
         }
@@ -166,36 +196,59 @@ void *handle_client(void* data) {
     }
 }
 
-void get_time(char *t_buff) {
+/*
+ * Creates a formatted time string for the current time.
+ * The resulting string will be stored in t_buff and will have
+ * the format hh:mm:ss.
+ * Parameters:
+ * t_buff: a buffer to hold the formated time string (NOT NULL TERMINATED).
+ */
+void get_time(char *t_buff)
+{
     time_t t;
-    struct tm * t_info;
-    if (time(&t) == -1) {
+    struct tm *t_info;
+    if (time(&t) == -1)
+    {
         perror("time");
         exit(-1);
     }
-    if ((t_info = localtime(&t)) == NULL) {
+    if ((t_info = localtime(&t)) == NULL)
+    {
         perror("localtime");
         exit(-1);
     }
-    if (snprintf(t_buff, 9, "%02d:%02d:%02d", t_info->tm_hour, t_info->tm_min, t_info->tm_sec) < 0) {
+    if (snprintf(t_buff, 9, "%02d:%02d:%02d", t_info->tm_hour, t_info->tm_min, t_info->tm_sec) < 0)
+    {
         perror("snprintf");
         exit(-1);
     }
 }
 
-int rename_client(char * in_buff, char * t_buff, char * out_buff, struct client * c) {
+/*
+ * rename_client updates the username field of a given client, and stores a notification string to
+ * send to all clients. rename_client returns the length of the rename notification
+ * Parameters:
+ * in_buff: null terminated string containing the new username.
+ * t_buff: null terminated string containing the current formated time.
+ * out_buff: pointer where rename notification is stored. Max size BUF_SIZE.
+ * c: pointer to the client strut to rename.
+ */
+int rename_client(char *in_buff, char *t_buff, char *out_buff, struct client *c)
+{
     int send_bytes = 0;
-    char * name_buff;
-    if ((name_buff = malloc(BUF_SIZE)) == NULL) {
+    char *name_buff;
+    if ((name_buff = malloc(BUF_SIZE)) == NULL)
+    {
         perror("malloc");
         exit(-1);
     }
-    int new_name_length = stpncpy(name_buff, (in_buff+6), BUF_SIZE) - name_buff;
-    if ((name_buff = realloc(name_buff, new_name_length)) == NULL) {
+    int new_name_length = stpncpy(name_buff, (in_buff + 6), BUF_SIZE) - name_buff;
+    if ((name_buff = realloc(name_buff, new_name_length)) == NULL)
+    {
         perror("realloc");
         exit(-1);
     }
-    name_buff[new_name_length-1] = '\0';
+    name_buff[new_name_length - 1] = '\0';
     // 78 is total size of string without name
     int len = 78 + new_name_length + strlen(c->username);
     send_bytes = snprintf(out_buff, len, "%s: %s (%s:%d) is now known as %s", t_buff, c->username, c->rem_ip, c->rem_port, name_buff);
@@ -203,29 +256,42 @@ int rename_client(char * in_buff, char * t_buff, char * out_buff, struct client 
     return send_bytes;
 }
 
-void disconect_client(struct client * c) {
+/*
+ * Function that removes the client pointed to by c from the client list.
+ * Uses mutex locking to safely manipulate the client list
+ * Parameters:
+ * c: Pointer to the client that has been disconected.
+ */
+void disconect_client(struct client *c)
+{
     char t_buff[10];
     get_time(t_buff);
     char disconect_msg[BUF_SIZE];
     // 51 = 15 for time and "User" + 36 for everything else
     int str_len = 52 + strlen(c->username);
     int out_len;
-    if ((out_len= snprintf(disconect_msg, str_len, "%s: User %s (%s:%d) has disconnected", t_buff, c->username, c->rem_ip, c->rem_port)) < 0) {
+    if ((out_len = snprintf(disconect_msg, str_len, "%s: User %s (%s:%d) has disconnected", t_buff, c->username, c->rem_ip, c->rem_port)) < 0)
+    {
         perror("snprintf");
         exit(-1);
     }
-   
+
     send_to_all_clients(c, disconect_msg, out_len);
     pthread_mutex_lock(&list_mutex);
     /* Update Linked list */
-    if (c->client_list->head == c) {
+    if (c->client_list->head == c)
+    {
         /* We are removing the HEAD */
         c->client_list->head = c->next;
-    } else if (c->client_list->tail == c) {
+    }
+    else if (c->client_list->tail == c)
+    {
         /* We are removing the TAIL */
         c->client_list->tail = c->prev;
         c->prev->next = NULL;
-    }else{
+    }
+    else
+    {
         /* We are removing any other node */
         c->prev->next = c->next;
         c->next->prev = c->prev;
@@ -238,22 +304,32 @@ void disconect_client(struct client * c) {
     free(c);
 }
 
-void send_to_all_clients(struct client * c, char* s, int len) {
+/*
+ * Sends a null terminated string to all connected clients.
+ * Parameters
+ * c: pointer to any client (provides access to the head of the client list)
+ * s: The null terminated string to be sent.
+ * len: The length (in chars) of s.
+ */
+void send_to_all_clients(struct client *c, char *s, int len)
+{
     pthread_mutex_lock(&list_mutex);
     struct client *cur = c->client_list->head;
-    while (cur->next != NULL) {
-        if (send(cur->fd, s, len, 0) == -1) {
+    while (cur->next != NULL)
+    {
+        if (send(cur->fd, s, len, 0) == -1)
+        {
             perror("send");
         }
         cur = cur->next;
     }
-    if (send(cur->fd, s, len, 0) == -1) {
-            perror("send");
-            pthread_mutex_unlock(&list_mutex);
-            return;
-        }
+    if (send(cur->fd, s, len, 0) == -1)
+    {
+        perror("send");
+        pthread_mutex_unlock(&list_mutex);
+        return;
+    }
     cur = cur->next;
     pthread_mutex_unlock(&list_mutex);
     return;
 }
-
